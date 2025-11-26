@@ -152,7 +152,7 @@ const smData=[
 /* SMALL MULTIPLES CONSTANTS */
 const SM_DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const SM_WIDTH=260, SM_HEIGHT=200;
-const SM_M={top:25,right:10,bottom:40,left:40};
+const SM_M={top:25,right:10,bottom:40,left:55};
 const SM_IW=SM_WIDTH-SM_M.left-SM_M.right;
 const SM_IH=SM_HEIGHT-SM_M.top-SM_M.bottom;
 
@@ -162,6 +162,8 @@ const smY=d3.scaleLinear()
   .range([SM_IH,0]);
 const smX=d3.scaleBand()
   .domain(SM_DAYS).range([0,SM_IW]).padding(0.1);
+
+  
 
 /* HIGHLIGHTING LOGIC FOR SMALL MULTIPLES */
 function highlightSmallMultiples(ranges){
@@ -214,10 +216,27 @@ function renderSmallMultiples(){
       .attr("transform",`translate(0,${SM_IH})`)
       .call(d3.axisBottom(smX).tickFormat(d=>d.slice(0,3)));
 
+    /* X-axis label */
+    svg.append("text")
+      .attr("transform", `translate(${SM_IW/2},${SM_IH+SM_M.bottom-5})`)
+      .style("text-anchor", "middle")
+      .style("font-size", "10px")
+      .text("Days of the Week");
+
     /* Left axis */
     svg.append("g")
       .attr("class","sm-axis")
       .call(d3.axisLeft(smY).ticks(5));
+
+    /* Y-axis label */
+    svg.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 0 - SM_M.left)
+      .attr("x", 0 - (SM_IH / 2))
+      .attr("dy", "1em")
+      .style("text-anchor", "middle")
+      .style("font-size", "10px")
+      .text("Number of Accidents");
 
     /* Bars */
     svg.selectAll(".sm-bar")
