@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Linked Accident Analysis (Cleaned)</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; margin: 30px; background: #f4f4f4; }
+    h1, h2 { text-align: center; margin-bottom: 8px; }
+
+    #histogram-container {
+      width: 650px; margin: 0 auto 40px auto; padding: 20px;
+      background: white; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .axis text { font-size: 12px; }
+    .axis path, .axis line { stroke: #888; }
+
+    .bar {
+      fill: #d46a4c; stroke: white; stroke-width: 2;
+      transition: fill .15s ease, opacity .15s ease; cursor: pointer;
+    }
+    .bar:hover { fill: #cf4923; }
+
+    .tooltip {
+      position: absolute; background: white; border: 1px solid #ccc;
+      padding: 8px 12px; border-radius: 4px; font-size: 12px;
+      pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      opacity: 0; z-index: 9999;
+    }
+
+    .controls { margin-top: 10px; font-size: 14px; }
+    .controls label { cursor: pointer; }
+
+    #sm-section { width: 100%; margin: 0 auto; }
+    .chart-container {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr));
+      gap: 20px; padding: 10px;
+    }
+
+    .chart {
+      background: white; border-radius: 8px; border: 1px solid #ddd;
+      padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+      transition: opacity .3s ease, box-shadow .3s ease, border .3s ease;
+      cursor: pointer;
+    }
+    .chart.dimmed { opacity: .25; }
+    .chart.highlighted {
+      border: 2px solid #1E90FF; box-shadow: 0 4px 10px rgba(30,144,255,.3);
+      opacity: 1;
+    }
+
+    .chart-title {
+      font-size: 14px; font-weight: bold; text-align: center;
+      margin-bottom: 6px; color: #555; pointer-events: none;
+    }
+
+    .sm-bar {
+      fill: #4682B4; transition: fill .2s ease; cursor: pointer;
+    }
+    .sm-bar:hover { fill: #1E90FF; }
+
+    .sm-axis text { font-size: 10px; fill: #666; }
+    .sm-axis path, .sm-axis line { stroke: #ccc; }
+  </style>
+</head>
+
+<body>
+<h1>Linked Accident Analysis</h1>
+
+<!--  HISTOGRAM SECTION  -->
+<div id="histogram-container">
+  <h2>Histogram of Traffic Accidents by Hour Groups</h2>
+  <div id="histogram"></div>
+  <div class="controls">
+    <label><input type="checkbox" id="toggleMinMax"> Show minimum (blue) and maximum (yellow)</label>
+  </div>
+</div>
+
+<!--  SMALL MULTIPLES SECTION  -->
+<div id="sm-section">
+  <h2>Accident Counts by Weekday Across Hour Ranges</h2>
+  <div class="chart-container" id="chart-container"></div>
+</div>
+
+<div class="tooltip"></div>
+
+<script>
+/* TOOLTIP FUNCTIONS */
+const tooltip = d3.select(".tooltip");
+
+function showTooltip(html, event){
+  tooltip.style("opacity",1).html(html);
+  moveTooltip(event);
+}
+function moveTooltip(event){
+  tooltip.style("left",(event.pageX+10)+"px").style("top",(event.pageY-28)+"px");
+}
+function hideTooltip(){ tooltip.style("opacity",0); }
+
+/* HELPER: HUMAN LABEL FOR HISTOGRAM */
+function getPeriodName(h){
+  if(h===0)return"Early Morning";
+  if(h===5)return"Morning Rush";
+  if(h===11)return"Midday";
+  if(h===15)return"Evening Rush";
+  if(h===20)return"Night";
+  return"";
+}
+
+/* SMALL MULTIPLES RAW DATA (STATIC AGGREGATED DATA) */
+const smData=[ 
+  /* (same as your version, unchanged) */
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Monday", "count": 687 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Tuesday", "count": 862 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Wednesday", "count": 751 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Thursday", "count": 724 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Friday", "count": 806 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Saturday", "count": 1033 },
+{ "hour_range": "00:00-04:59 (Early Morning)", "weekday": "Sunday", "count": 1119 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Monday", "count": 1573 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Tuesday", "count": 1973 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Wednesday", "count": 1804 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Thursday", "count": 1697 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Friday", "count": 1580 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Saturday", "count": 1361 },
+{ "hour_range": "05:00-10:59 (Morning Rush)", "weekday": "Sunday", "count": 969 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Monday", "count": 1920 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Tuesday", "count": 2021 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Wednesday", "count": 1825 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Thursday", "count": 1841 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Friday", "count": 1714 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Saturday", "count": 1745 },
+{ "hour_range": "11:00-14:59 (Midday)", "weekday": "Sunday", "count": 1173 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Monday", "count": 2371 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Tuesday", "count": 2343 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Wednesday", "count": 2380 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Thursday", "count": 2230 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Friday", "count": 2041 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Saturday", "count": 2137 },
+{ "hour_range": "15:00-19:59 (Evening Rush)", "weekday": "Sunday", "count": 1579 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Monday", "count": 1268 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Tuesday", "count": 1301 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Wednesday", "count": 1268 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Thursday", "count": 1365 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Friday", "count": 1428 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Saturday", "count": 1510 },
+{ "hour_range": "20:00-23:59 (Night)", "weekday": "Sunday", "count": 1223 }
+];
+
+/* SMALL MULTIPLES CONSTANTS */
+const SM_DAYS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+const SM_WIDTH=260, SM_HEIGHT=200;
+const SM_M={top:25,right:10,bottom:40,left:40};
+const SM_IW=SM_WIDTH-SM_M.left-SM_M.right;
+const SM_IH=SM_HEIGHT-SM_M.top-SM_M.bottom;
+
+/* Y-scale and X-scale for small multiples */
+const smY=d3.scaleLinear()
+  .domain([0,d3.max(smData,d=>d.count)]).nice()
+  .range([SM_IH,0]);
+const smX=d3.scaleBand()
+  .domain(SM_DAYS).range([0,SM_IW]).padding(0.1);
+
+/* HIGHLIGHTING LOGIC FOR SMALL MULTIPLES */
+function highlightSmallMultiples(ranges){
+  const all=d3.selectAll(".chart");
+  if(!ranges||ranges.length===0){
+    all.classed("dimmed",false).classed("highlighted",false);
+    return;
+  }
+  const ids=ranges.map(r=>r.replace(/[^a-zA-Z0-9]/g,"-"));
+  all.each(function(){
+    const c=d3.select(this), id=c.attr("id");
+    c.classed("highlighted",ids.includes(id))
+     .classed("dimmed",!ids.includes(id));
+  });
+}
+
+/*  SELECT FROM SMALL MULTIPLE → REFLECT IN HISTOGRAM  */
+function selectHourRangeFromSmallMultiple(label){
+  const num=REVERSE_RANGE_MAP[label];
+  if(!num)return;
+  const [x0,x1]=num.split("-").map(Number);
+  d3.selectAll(".bar")
+    .transition().duration(250)
+    .attr("opacity",d=>(d.x0===x0&&d.x1===x1?1:.25));
+  highlightSmallMultiples([label]);
+}
+
+/* RENDER SMALL MULTIPLES  */
+function renderSmallMultiples(){
+  const container=d3.select("#chart-container");
+  const groups=d3.group(smData,d=>d.hour_range);
+
+  groups.forEach((vals,range)=>{
+    const rID=range.replace(/[^a-zA-Z0-9]/g,"-");
+    const chart=container.append("div")
+      .attr("class","chart")
+      .attr("id",rID)
+      .on("click",()=>selectHourRangeFromSmallMultiple(range));
+
+    chart.append("div").attr("class","chart-title").text(range);
+
+    const svg=chart.append("svg")
+      .attr("width",SM_WIDTH).attr("height",SM_HEIGHT)
+      .append("g")
+      .attr("transform",`translate(${SM_M.left},${SM_M.top})`);
+
+    /* Bottom axis */
+    svg.append("g")
+      .attr("class","sm-axis")
+      .attr("transform",`translate(0,${SM_IH})`)
+      .call(d3.axisBottom(smX).tickFormat(d=>d.slice(0,3)));
+
+    /* Left axis */
+    svg.append("g")
+      .attr("class","sm-axis")
+      .call(d3.axisLeft(smY).ticks(5));
+
+    /* Bars */
+    svg.selectAll(".sm-bar")
+      .data(vals)
+      .join("rect")
+      .attr("class","sm-bar")
+      .attr("x",d=>smX(d.weekday))
+      .attr("y",d=>smY(d.count))
+      .attr("width",smX.bandwidth())
+      .attr("height",d=>SM_IH-smY(d.count))
+      .on("mouseover",(e,d)=>showTooltip(
+        `<strong>${d.weekday}</strong><br>${d.hour_range}<br>Accidents: ${d.count}`,e))
+      .on("mousemove",moveTooltip)
+      .on("mouseout",hideTooltip)
+      .on("click",(e)=>{e.stopPropagation();selectHourRangeFromSmallMultiple(range);});
+  });
+}
+renderSmallMultiples();
+
+/* MAPPING (HISTOGRAM BINS ↔ RANGE LABELS) */
+const RANGE_MAP={
+  "0-5":"00:00-04:59 (Early Morning)",
+  "5-11":"05:00-10:59 (Morning Rush)",
+  "11-15":"11:00-14:59 (Midday)",
+  "15-20":"15:00-19:59 (Evening Rush)",
+  "20-24":"20:00-23:59 (Night)"
+};
+const REVERSE_RANGE_MAP=Object.fromEntries(
+  Object.entries(RANGE_MAP).map(([k,v])=>[v,k])
+);
+
+/* HISTOGRAM CSV LOADING */
+const csvFile="https://raw.githubusercontent.com/sheriefAbdallah/CS318/refs/heads/main/Traffic_Incidents.csv";
+const parseTime=d3.timeParse("%d/%m/%Y %H:%M:%S");
+
+const width=500,height=400,mt=20,mr=30,mb=70,ml=80;
+
+d3.csv(csvFile).then(raw=>{
+
+  /* HISTOGRAM DATA PROCESSING */
+  const data=[];
+  raw.forEach(d=>{
+    let t=parseTime(d.acci_time);
+    if(!t||isNaN(t))t=new Date(d.acci_time);
+    if(!isNaN(t))data.push({hour:t.getHours()});
+  });
+
+  /* Histogram bin thresholds */
+  const thresholds=[0,5,11,15,20,24];
+
+  /* Create histogram bins */
+  const bins=d3.bin().domain([0,24]).thresholds(thresholds)
+    .value(d=>d.hour)(data);
+
+  /* HISTOGRAM SCALES */
+  const x=d3.scaleLinear().domain([0,24]).range([ml,width-mr]);
+  const y=d3.scaleLinear()
+    .domain([0,d3.max(bins,d=>d.length)]).nice()
+    .range([height-mb,mt]);
+
+  /* HISTOGRAM SVG */
+  const svg=d3.select("#histogram").append("svg")
+    .attr("width",width).attr("height",height);
+
+  let hasBrush=false;
+
+  /* HISTOGRAM BRUSH */
+  const brush=d3.brushX()
+    .extent([[ml,mt],[width-mr,height-mb]])
+    .on("end",brushed);
+
+  const brushG=svg.append("g")
+    .attr("class","brush")
+    .call(brush);
+
+  const barG=svg.append("g");
+
+  /* Helper: set opacity on histogram bars */
+  function setHistogramOpacity(selectedBins){
+    d3.selectAll(".bar").transition().duration(300)
+      .attr("opacity",d=>selectedBins.includes(d)?1:.25);
+  }
+
+  /* HISTOGRAM BARS */
+  const bars=barG.selectAll("rect").data(bins).join("rect")
+    .attr("class","bar")
+    .attr("x",d=>x(d.x0))
+    .attr("width",d=>Math.max(0,x(d.x1)-x(d.x0)))
+    .attr("y",d=>y(d.length))
+    .attr("height",d=>y(0)-y(d.length))
+    .on("mouseover",(e,d)=>{
+      const label=`${d.x0}:00–${d.x1-1}:59`;
+      showTooltip(
+        `<strong>${getPeriodName(d.x0)}</strong><br>Time: ${label}<br>Accidents: ${d.length}`,e);
+    })
+    .on("mousemove",moveTooltip)
+    .on("mouseout",hideTooltip)
+    .on("click",(e,bin)=>{
+      e.stopPropagation();
+      brushG.call(brush.move,null);
+      hasBrush=false;
+      setHistogramOpacity([bin]);
+      const key=`${bin.x0}-${bin.x1}`;
+      highlightSmallMultiples([RANGE_MAP[key]]);
+    });
+
+  /* MIN/MAX HIGHLIGHT RECTANGLES */
+  const nonEmpty=bins.filter(d=>d.length>0);
+  const minBin=nonEmpty.reduce((a,b)=>a.length<=b.length?a:b);
+  const maxBin=nonEmpty.reduce((a,b)=>a.length>=b.length?a:b);
+
+  const highlightG=svg.append("g");
+
+  const minRect=highlightG.append("rect")
+    .attr("x",x(minBin.x0))
+    .attr("y",y(minBin.length))
+    .attr("width",Math.max(0,x(minBin.x1)-x(minBin.x0)))
+    .attr("height",y(0)-y(minBin.length))
+    .attr("fill","none").attr("stroke","#0072B2")
+    .attr("stroke-width",4).style("opacity",0);
+
+  const maxRect=highlightG.append("rect")
+    .attr("x",x(maxBin.x0))
+    .attr("y",y(maxBin.length))
+    .attr("width",Math.max(0,x(maxBin.x1)-x(maxBin.x0)))
+    .attr("height",y(0)-y(maxBin.length))
+    .attr("fill","none").attr("stroke","#FFC400")
+    .attr("stroke-width",4).style("opacity",0);
+
+  /* Reset histogram + small multiples */
+  function resetBars(){
+    const show=document.getElementById("toggleMinMax").checked;
+    if(show){
+      minRect.style("opacity",1);
+      maxRect.style("opacity",1);
+      d3.selectAll(".bar").transition().duration(300)
+        .attr("opacity",d=>d===minBin||d===maxBin?1:.25);
+    }else{
+      minRect.style("opacity",0);
+      maxRect.style("opacity",0);
+      d3.selectAll(".bar").transition().duration(300)
+        .attr("opacity",1);
+    }
+    highlightSmallMultiples([]);
+  }
+
+  /*  HISTOGRAM BRUSH HANDLER  */
+  
+  function brushed(e){
+    const s=e.selection;
+    if(!s){hasBrush=false;resetBars();return;}
+    hasBrush=true;
+    const [x0,x1]=s;
+    const selected=bins.filter(bin=>{
+      const cx=(x(bin.x0)+x(bin.x1))/2;
+      return cx>=x0&&cx<=x1;
+    });
+    setHistogramOpacity(selected);
+    const labels=selected.map(b=>RANGE_MAP[`${b.x0}-${b.x1}`]).filter(Boolean);
+    highlightSmallMultiples(labels);
+  }
+
+  /* Clear selection on empty click */
+  svg.on("click",()=>{
+    if(!hasBrush)resetBars();
+  });
+
+  /* Checkbox handler */
+  d3.select("#toggleMinMax").on("change",resetBars);
+
+  /* HISTOGRAM AXES */
+  const xAxis=svg.append("g")
+    .attr("class","axis")
+    .attr("transform",`translate(0,${height-mb})`)
+    .call(d3.axisBottom(x).tickValues(thresholds).tickFormat(d=>d));
+  xAxis.append("text")
+    .attr("x",width/2).attr("y",45).attr("fill","currentColor")
+    .attr("text-anchor","middle").style("font-size","14px")
+    .style("font-weight","600")
+    .text("Hour of day (Grouped intervals)");
+
+  const yAxis=svg.append("g")
+    .attr("class","axis")
+    .attr("transform",`translate(${ml},0)`)
+    .call(d3.axisLeft(y).ticks(8));
+  yAxis.append("text")
+    .attr("transform","rotate(-90)")
+    .attr("x",-(height-mt-mb)/2).attr("y",-55)
+    .attr("fill","currentColor").attr("text-anchor","middle")
+    .style("font-size","14px").style("font-weight","600")
+    .text("Number of accidents");
+
+  resetBars();
+});
+</script>
+
+</body>
+</html>
